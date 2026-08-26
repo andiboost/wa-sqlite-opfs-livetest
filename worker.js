@@ -5,10 +5,23 @@ function post(text, cls) {
   self.postMessage({ text, cls })
 }
 
+async function walkOPFS(dir, prefix = '') {
+  const entries = []
+  for await (const [name, handle] of dir.entries()) {
+    entries.push(`${prefix}${name} (${handle.kind})`)
+    if (handle.kind === 'directory') {
+      entries.push(...(await walkOPFS(handle, prefix + name + '/')))
+    }
+  }
+  return entries
+}
+
 self.onmessage = async (event) => {
-  const build = event.data.build
+  const { build, mode } = event.data
+  const verifyOnly = mode === 'verify'
   try {
     post(`[worker] crossOriginIsolated = ${self.crossOriginIsolated}`, 'info')
+    post(`[worker] mode = ${verifyOnly ? 'verify-only (no write, proves persistence across reload)' : 'write+read'}`, 'info')
 
     post(`[worker] build selected: ${build}`, 'info')
     const SQLiteESMFactory = build === 'async'
@@ -31,17 +44,21 @@ self.onmessage = async (event) => {
     const db = await sqlite3.open_v2('opfs-live-test.db')
     post('[worker] db opened OK', 'ok')
 
-    await sqlite3.exec(db, `
-      CREATE TABLE IF NOT EXISTS live_test (id INTEGER PRIMARY KEY, note TEXT, written_at TEXT)
-    `)
-    post('[worker] CREATE TABLE IF NOT EXISTS live_test — OK', 'ok')
+    if (!verifyOnly) {
+      await sqlite3.exec(db, `
+        CREATE TABLE IF NOT EXISTS live_test (id INTEGER PRIMARY KEY, note TEXT, written_at TEXT)
+      `)
+      post('[worker] CREATE TABLE IF NOT EXISTS live_test — OK', 'ok')
 
-    const stamp = new Date().toISOString()
-    await sqlite3.exec(
-      db,
-      `INSERT INTO live_test (note, written_at) VALUES ('hello from OPFSCoopSyncVFS (${build})', '${stamp}')`,
-    )
-    post(`[worker] INSERT — OK (written_at=${stamp})`, 'ok')
+      const stamp = new Date().toISOString()
+      await sqlite3.exec(
+        db,
+        `INSERT INTO live_test (note, written_at) VALUES ('hello from OPFSCoopSyncVFS (${build})', '${stamp}')`,
+      )
+      post(`[worker] INSERT — OK (written_at=${stamp})`, 'ok')
+    } else {
+      post('[worker] skipping CREATE/INSERT — reading back only what a PREVIOUS session wrote', 'info')
+    }
 
     const rows = []
     await sqlite3.exec(db, 'SELECT id, note, written_at FROM live_test ORDER BY id', (row, columns) => {
@@ -54,10 +71,8 @@ self.onmessage = async (event) => {
     post('[worker] db closed OK', 'ok')
 
     const opfsRoot = await navigator.storage.getDirectory()
-    const vfsDir = await opfsRoot.getDirectoryHandle('opfs-test-vfs', { create: false })
-    const names = []
-    for await (const name of vfsDir.keys()) names.push(name)
-    post(`[worker] OPFS directory "opfs-test-vfs" contains: ${names.join(', ') || '(empty)'}`, names.length ? 'ok' : 'err')
+    const entries = await walkOPFS(opfsRoot)
+    post(`[worker] full OPFS tree from root: ${entries.length ? entries.join(', ') : '(empty)'}`, entries.length ? 'ok' : 'err')
 
     post('[worker] TEST PASSED', 'ok')
     self.postMessage({ done: true, ok: true })

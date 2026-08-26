@@ -12,7 +12,8 @@ function line(text, cls) {
 
 const params = new URLSearchParams(location.search)
 const build = params.get('build') === 'async' ? 'async' : 'sync'
-buildLabelEl.textContent = build
+const mode = params.get('mode') === 'verify' ? 'verify' : 'write'
+buildLabelEl.textContent = `${build} (${mode})`
 logEl.textContent = ''
 
 line(`crossOriginIsolated (main thread) = ${self.crossOriginIsolated}`, 'info')
@@ -20,7 +21,7 @@ line(`location.origin = ${location.origin}${location.pathname}`, 'info')
 line(`build selected: ${build}`, 'info')
 line('spawning dedicated Worker (createSyncAccessHandle requires one)…', 'info')
 
-const worker = new Worker('./worker.js?v=3', { type: 'module' })
+const worker = new Worker('./worker.js?v=4', { type: 'module' })
 worker.onmessage = (event) => {
   const { text, cls, done, ok } = event.data
   if (text) line(text, cls)
@@ -32,4 +33,4 @@ worker.onmessage = (event) => {
 worker.onerror = (event) => {
   line(`MAIN: worker error: ${event.message}`, 'err')
 }
-worker.postMessage({ build })
+worker.postMessage({ build, mode })
