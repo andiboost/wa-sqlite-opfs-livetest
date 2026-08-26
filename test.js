@@ -20,7 +20,7 @@ line(`location.origin = ${location.origin}${location.pathname}`, 'info')
 line(`build selected: ${build}`, 'info')
 line('spawning dedicated Worker (createSyncAccessHandle requires one)…', 'info')
 
-const worker = new Worker('./worker.js', { type: 'module' })
+const worker = new Worker('./worker.js?v=3', { type: 'module' })
 worker.onmessage = (event) => {
   const { text, cls, done, ok } = event.data
   if (text) line(text, cls)
